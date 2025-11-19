@@ -1,0 +1,22 @@
+[project]
+name = "fastapi-tutorial"
+version = "0.1.0"
+description = "A FastAPI project"
+authors = [
+    {name = "mithologic",email = "devmithologic@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi (>=0.121.2,<0.122.0)",
+    "python-dotenv (>=1.2.1,<2.0.0)",
+    "imagekitio (>=4.2.0,<5.0.0)",
+    "fastapi-users[sqlalchemy] (>=15.0.1,<16.0.0)",
+    "uvicorn[standard] (>=0.38.0,<0.39.0)",
+    "aiosqlite (>=0.21.0,<0.22.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

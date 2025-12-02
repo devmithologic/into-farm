@@ -24,5 +24,4 @@
 ## Practice
 
 ---
-Back to Index:
-[<](../)
+[< Back to index](../)

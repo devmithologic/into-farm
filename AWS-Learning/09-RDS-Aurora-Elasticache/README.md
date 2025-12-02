@@ -7,13 +7,34 @@
 - [RDS, Aurora and Elasticache](#rds-aurora-and-elasticache)
   - [Content](#content)
     - [Introduction](#introduction)
+    - [List of important ports you should know](#list-of-important-ports-you-should-know)
   - [Practice](#practice)
     - [How to create an RDS SQL Database](#how-to-create-an-rds-sql-database)
-    - [Amazon RDS SQL Database Creation](#amazon-rds-sql-database-creation)
+    - [How to create an ElastiCache Redis Database](#how-to-create-an-elasticache-redis-database)
 
 ---
 
 ### Introduction
+
+### List of important ports you should know
+
+Importan ports:
+
+- FTP:    `21`
+- SSH:    `22`
+- SFTP:   `22`
+- HTTP:   `80`
+- HTTPS:  `443`
+
+RDS DB Points:
+
+- PostgreSQL: `5432`
+- MySQL: `3306`
+- Oracle RDS: `1521`
+- MSSQL Server: `1433`
+- MariaDB: `3306`
+- Aurora (PostgreSQL): `5432`
+- Aurora (MySQL): `3306`
 
 ---
 
@@ -56,7 +77,7 @@ And remember your port number
 15. And we are done
 ![done](./images/15-done.png)
 
-### Amazon RDS SQL Database Creation
+### How to create an ElastiCache Redis Database
 
-[!WARNING]
+![WARNING]
 RDS Storage Auto Scale

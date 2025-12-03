@@ -52,7 +52,7 @@ http://api.www.example.com.
 
 ### How DNS works?
 
-```Mermaid
+```mermaid
 flowchart TD
     Browser["🖥️ Web Browser<br/>You want to access<br/>example.com"]
     LocalDNS["📋 Local DNS Server<br/>Assigned and managed by your<br/>company or dynamically assigned<br/>by your ISP"]

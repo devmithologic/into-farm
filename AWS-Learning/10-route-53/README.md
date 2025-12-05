@@ -11,6 +11,7 @@
     - [FQDN (Fully Qualified Domain Name)](#fqdn-fully-qualified-domain-name)
     - [How DNS works?](#how-dns-works)
   - [Practice](#practice)
+    - [How to register a domain](#how-to-register-a-domain)
 
 ---
 
@@ -87,5 +88,18 @@ flowchart TD
 
 ## Practice
 
+### How to register a domain
+
+![alt text](./images/01-route%2053.png)
+
+![alt text](./images/02-get-started.png)
+
+![alt text](./images/03-option-register-domain.png)
+
+![alt text](./images/04-select.png)
+
+![alt text](./images/05-checkout.png)
+
 ---
+
 [< Back to index](../)

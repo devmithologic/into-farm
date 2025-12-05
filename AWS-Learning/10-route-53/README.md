@@ -6,7 +6,7 @@
 
 - [AWS Route 53](#aws-route-53)
   - [Content](#content)
-  - [AWS Route 53 - DNS Service](#aws-route-53---dns-service)
+- [AWS Route 53 - DNS Service](#aws-route-53---dns-service)
   - [Introduction](#introduction)
     - [DNS Terminology](#dns-terminology)
     - [FQDN (Fully Qualified Domain Name)](#fqdn-fully-qualified-domain-name)
@@ -19,12 +19,30 @@
     - [AWS-Specific Record Type](#aws-specific-record-type)
     - [Additional Record Types](#additional-record-types)
   - [TTL (Time To Live)](#ttl-time-to-live)
-  - [Practice](#practice)
+  - [Routing Policies](#routing-policies)
+    - [Simple Routing](#simple-routing)
+    - [Weighted Routing](#weighted-routing)
+    - [Latency-Based Routing](#latency-based-routing)
+    - [Geolocation Routing](#geolocation-routing)
+    - [Geoproximity Routing](#geoproximity-routing)
+    - [Failover Routing (Active-Passive)](#failover-routing-active-passive)
+    - [Multivalue Answer Routing](#multivalue-answer-routing)
+  - [Health Checks](#health-checks)
+    - [Types of Health Checks:](#types-of-health-checks)
+    - [Health Check Features:](#health-check-features)
+    - [Health Check Behavior:](#health-check-behavior)
+  - [Combining Routing Policies with Health Checks](#combining-routing-policies-with-health-checks)
+  - [Cost Considerations](#cost-considerations)
+  - [AWS Service Integration](#aws-service-integration)
+  - [Common Use Cases for Certification](#common-use-cases-for-certification)
+  - [Important Limitations](#important-limitations)
+  - [Real-World Scenario: Global Application with Failover](#real-world-scenario-global-application-with-failover)
+- [Practice](#practice)
     - [How to register a domain](#how-to-register-a-domain)
 
 ---
 
-## AWS Route 53 - DNS Service
+# AWS Route 53 - DNS Service
 
 ## Introduction
 
@@ -229,9 +247,352 @@ TTL specifies how long (in seconds) DNS resolvers and clients should cache your 
 
 **Important**: Except for Alias records, TTL is mandatory for every DNS record type.
 
+## Routing Policies
+
+### Simple Routing
+
+- Most basic policy
+- One domain name points to one or more resources
+- If multiple values specified, Route 53 returns all in random order
+- Client chooses which to use
+- **Cannot be associated with health checks**
+- Use when: Single resource performs function for your domain
+
+### Weighted Routing
+
+- Distributes traffic based on assigned weights
+- Traffic % = (Weight for specific record) / (Sum of all weights)
+- Example: Weight 70 to Server A, Weight 30 to Server B = 70% and 30% distribution
+- DNS records must have same name and type
+- **Can be associated with health checks**
+- **Use cases**: 
+  - Load balancing between regions
+  - Testing new application versions (gradual rollout)
+  - A/B testing
+- Assign weight of 0 to stop sending traffic to a resource
+- If all weights are 0, all records returned equally
+
+### Latency-Based Routing
+
+- Routes to resource with lowest latency from user's location
+- AWS continuously measures latency between regions globally
+- When user makes query, Route 53 checks user location and returns resource in region with historically lowest latency
+- **Can be associated with health checks** (has failover capability)
+- **Use case**: When performance and user experience are priority
+
+### Geolocation Routing
+
+- Routes based on user's actual geographic location
+- Specify location by: Continent, Country, or US State (most precise)
+- Should create **default record** for locations that don't match any rules
+- **Can be associated with health checks**
+- **Use cases**: 
+  - Website localization
+  - Content distribution restrictions
+  - Load balancing based on user location
+  - Compliance requirements (data residency)
+- Different from latency-based: based on user location, not network performance
+
+### Geoproximity Routing
+
+- Routes based on geographic location of users AND resources
+- Ability to shift traffic to resources based on defined **bias**
+- **Bias** expands or shrinks geographic region from which traffic is routed:
+  - Increase bias (1 to 99) = more traffic to resource
+  - Decrease bias (-1 to -99) = less traffic to resource
+- Resources can be:
+  - AWS resources (specify region)
+  - Non-AWS resources (specify latitude and longitude)
+- Must use Route 53 Traffic Flow to use this feature
+- **Use case**: When you need fine control over traffic distribution based on geography
+
+### Failover Routing (Active-Passive)
+
+- Two records: Primary and Secondary (disaster recovery)
+- Route 53 always routes to primary while healthy
+- **Mandatory health check on primary resource**
+- If primary fails health check, automatically routes to secondary
+- Secondary can optionally have health check
+- **Use case**: High availability, disaster recovery scenarios
+
+### Multivalue Answer Routing
+
+- Routes traffic to multiple resources
+- Returns multiple values/resources (up to 8 healthy records)
+- **Can be associated with health checks** (only returns healthy resources)
+- Not a substitute for ELB (client-side load balancing)
+- If you want to associate health checks with records, multivalue is better than simple routing
+- **Use case**: Simple load balancing with health verification at DNS level
+
+## Health Checks
+
+Health checks monitor resource availability and integrate with routing decisions. Similar to monitoring systems that verify server status at regular intervals.
+
+### Types of Health Checks:
+
+**1. Endpoint Health Checks**
+
+- Monitor specific endpoint via HTTP/HTTPS/TCP
+- Checks from ~15 global health checkers
+- Default interval: 30 seconds (can configure to 10 seconds for fast interval)
+- Healthy/unhealthy threshold: default 3 checks
+- Protocol support:
+  - HTTP/HTTPS: Returns 2xx or 3xx status code
+  - TCP: Successful TCP connection
+- Can check first 5120 bytes of response for specific text
+- Health checkers must be allowed in firewall/security groups
+- Considered healthy if >18% of health checkers report healthy
+
+**2. Calculated Health Checks**
+
+- Combine results of multiple health checks
+- Logic operators: AND, OR, NOT
+- Can monitor up to 256 child health checks
+- Specify how many children need to pass for parent to be healthy
+- **Use case**: Perform maintenance without causing alarms
+
+**3. CloudWatch Alarm Health Checks**
+
+- Based on CloudWatch metrics
+- Useful for internal application metrics not easily verified externally
+- Health check based on CloudWatch alarm state
+- Examples: DynamoDB throttles, CPU usage, custom metrics
+- **Use case**: Private resources, internal metrics
+
+### Health Check Features:
+
+- Integrated with CloudWatch metrics
+- Failed health checks visible in CloudWatch
+- Health checks can trigger CloudWatch alarms
+- Private hosted zones: Create CloudWatch metric, associate alarm, then create health check that checks the alarm
+
+### Health Check Behavior:
+
+When health check fails, Route 53 automatically:
+
+- Stops including that resource in DNS responses
+- Triggers failover to secondary resource (if failover routing configured)
+- Removes resource from rotation (if weighted/multivalue routing)
+- Detection speed depends on health check interval and DNS record TTL
+
+## Combining Routing Policies with Health Checks
+
+The real power of Route 53 comes from combining routing policies with health checks.
+
+**Example Multi-Region Architecture:**
+
+1. Geolocation routing directs users to nearest region
+2. Each geographic endpoint has health check
+3. If European servers fail, European users automatically routed to US servers
+4. Within each region, weighted routing distributes load between multiple servers
+5. If one server fails, weight automatically redistributed to healthy servers
+6. CloudWatch alarms monitor health check status and send notifications
+
+**Multi-Layer Routing Example:**
+
+- Primary layer: Geolocation routing (Europe → EU region, US → US region)
+- Secondary layer: Weighted routing within each region (distribute load)
+- Tertiary layer: Health checks ensure only healthy resources receive traffic
+- Failover layer: If entire region fails, traffic fails over to another region
+
+## Cost Considerations
+
+**Hosted Zones**: $0.50/month per zone (public or private)
+
+**DNS Queries**:
+
+- Standard queries (A, AAAA, CNAME, etc.): $0.40 per million
+- Alias records to AWS resources: **FREE**
+- Latency-based routing queries: $0.60 per million
+- Geolocation/Geoproximity queries: $0.60 per million
+- Weighted routing queries: $0.60 per million
+
+**Health Checks**:
+
+- AWS endpoint health checks: $0.50/month each
+- Non-AWS endpoint health checks: $1.00/month each
+- Fast interval (10 seconds): Additional cost
+- HTTPS health checks: Additional cost
+- String matching in response: Additional cost
+- Calculated health checks: No additional charge beyond child checks
+
+**Cost Optimization Tips:**
+
+- Use Alias records instead of CNAMEs when possible (no query charges)
+- Use longer TTLs to reduce query volume
+- Balance health check costs against availability value
+- Consider calculated health checks to reduce total number of checks
+
+## AWS Service Integration
+
+Route 53 integrates deeply with other AWS services:
+
+**Load Balancers**
+
+- Create Alias records pointing to ELB (ALB, NLB, CLB)
+- No need to know IP (load balancers don't have static IPs)
+- Automatic DNS updates if load balancer IP changes
+
+**CloudFront**
+
+- Point domain to CloudFront distribution
+- Serve content from nearest edge location
+- Automatic SSL/TLS with ACM certificates
+
+**S3 Static Website Hosting**
+
+- Point domain directly to S3 bucket configured as website
+- Bucket name must match domain name
+- Region-specific S3 website endpoints
+
+**API Gateway**
+
+- Custom domains for API Gateway endpoints
+- Regional or edge-optimized APIs
+
+**Elastic Beanstalk**
+
+- Automatic DNS for EB environments
+- Blue-green deployments with DNS swap
+
+**CloudWatch Integration**
+
+- Route 53 sends metrics: health checks, query count, latency
+- Create alarms based on these metrics
+- Examples: Alert on health check failure, unusual query spikes (potential attack)
+
+## Common Use Cases for Certification
+
+**Multi-Region Active-Active Architecture**
+
+- Latency-based or Geolocation routing
+- Health checks for automatic failover
+- Each region independently handles traffic
+- Optimizes user experience globally
+
+**Disaster Recovery / High Availability**
+
+- Failover routing with health checks
+- Primary in main region, secondary in DR region
+- Automatic failover when primary unhealthy
+- RTO depends on TTL + health check interval
+
+**Blue-Green Deployments**
+
+- Weighted routing: Start 100% blue, 0% green
+- Gradually shift weight to green version
+- Quick rollback by adjusting weights back
+- Zero-downtime deployments
+
+**Canary Releases**
+
+- Weighted routing: 95% stable, 5% canary
+- Monitor canary performance and errors
+- Gradually increase weight if successful
+- Instant rollback if issues detected
+
+**Geographic Content Restriction**
+
+- Geolocation routing to comply with regulations
+- Different content per region
+- Block access from specific countries
+
+**Website Migration**
+
+- Lower TTL before migration (e.g., to 60 seconds)
+- Update DNS records to new infrastructure
+- Monitor for 24-48 hours
+- Increase TTL back to normal after confirming stability
+
+## Important Limitations
+
+**Not an Application Load Balancer**
+
+- Route 53 operates at DNS level (Layer 7 but DNS-specific)
+- Cannot make decisions based on:
+  - HTTP request path
+  - Request headers
+  - Cookies
+  - Session data
+- For application-level routing: Use ALB/NLB in front of instances
+
+**DNS Caching Behavior**
+
+- Changes limited by TTL
+- Client-side caching may exceed TTL
+- ISP resolvers may not respect TTL exactly
+- Complete propagation can take time
+
+**CNAME Limitations**
+
+- Cannot create CNAME at zone apex
+- CNAME cannot coexist with other record types for same name
+- Use Alias records for AWS resources instead
+
+**Alias Record Limitations**
+
+- Only works with AWS resources
+- Cannot set TTL (uses target resource's TTL)
+- Cannot point to on-premises resources
+
+## Real-World Scenario: Global Application with Failover
+
+**Requirements:**
+
+- FastAPI application with users in US and Europe
+- Minimize latency for both user bases
+- Automatic failover if region fails
+- Cost-effective solution
+
+**Architecture Solution:**
+
+1. **Deploy Infrastructure**
+   - Application instances in `us-east-1` and `eu-west-1`
+   - Each region has Auto Scaling Group with ALB
+   - Database with cross-region replication
+
+2. **Configure Route 53**
+   - Create public hosted zone for domain
+   - Configure Geolocation routing:
+     - Europe → `eu-west-1` ALB
+     - North America → `us-east-1` ALB
+     - Default → `us-east-1` (for unconfigured locations)
+
+3. **Setup Health Checks**
+   - Health check for `us-east-1` ALB (checks `/health` endpoint)
+   - Health check for `eu-west-1` ALB (checks `/health` endpoint)
+   - Both checks every 30 seconds with 3 failure threshold
+
+4. **Configure Failover**
+   - If `eu-west-1` fails health check, route European traffic to `us-east-1`
+   - If `us-east-1` fails, route US traffic to `eu-west-1`
+   - Set TTL to 300 seconds (5 minutes)
+
+5. **Monitoring**
+   - CloudWatch alarms for health check failures
+   - SNS notifications to on-call team
+   - Dashboard showing query distribution and health status
+
+**Expected Results:**
+
+- European users: ~50ms latency (vs ~150ms without geolocation)
+- US users: ~20ms latency (vs ~120ms without geolocation)
+- If either region fails:
+  - Health check detects failure within 90 seconds (3 checks × 30s)
+  - Traffic redirects to healthy region
+  - Total failover time: ~6 minutes (90s detection + 300s TTL)
+- Cost: ~$4/month (2 hosted zones + 2 health checks + minimal query charges)
+
+**boto3 Implementation Considerations:**
+
+- Automate hosted zone creation
+- Script health check configuration
+- Implement DNS record updates with proper TTL
+- Create monitoring dashboard programmatically
+
 ---
 
-## Practice
+# Practice
 
 ### How to register a domain
 

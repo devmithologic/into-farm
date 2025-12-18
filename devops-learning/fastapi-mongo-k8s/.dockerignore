@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+.git/
+.gitignore
+*.md
+.env
+tests/
+.python-version
+poetry.lock

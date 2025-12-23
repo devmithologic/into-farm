@@ -1,6 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
-from app.database import connect_to_mongo, close_mongo_connection
+from app.database import connect_to_mongo, close_mongo_connection, get_database
 from app.config import settings
 
 @asynccontextmanager
@@ -34,11 +35,12 @@ async def health():
 
 @app.get("/db-health")
 async def db_health():
-    from app.database import get_database
     try:
         db = await get_database()
-        # Ping the database
         await db.command("ping")
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
-        return {"status": "unhealthy", "error": str(e)}
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "unhealthy", "error": str(e)}
+        )

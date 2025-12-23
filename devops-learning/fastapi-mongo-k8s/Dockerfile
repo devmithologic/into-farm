@@ -1,8 +1,9 @@
 # Build stage
-FROM python:3.11-slim as builder
+FROM python:3.12-slim as builder
 
 # Install Poetry
-RUN pip install --no-cache-dir poetry==1.7.1
+RUN pip install --no-cache-dir poetry==2.1.4 && \
+    poetry self add poetry-plugin-export
 
 WORKDIR /app
 
@@ -13,7 +14,7 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
 
 # Runtime stage
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 

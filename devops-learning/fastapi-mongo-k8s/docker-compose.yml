@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # =========================================================================
+  # MongoDB Service
+  # =========================================================================
+  mongodb:
+    image: mongo:7.0
+    container_name: fastapi-mongodb
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Environment variables for MongoDB
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: secret123
+      MONGO_INITDB_DATABASE: fastapi_db
+    
+    # Port mapping (optional - for local access)
+    ports:
+      - "27017:27017"
+    
+    # Persistent volume for data
+    volumes:
+      - mongodb_data:/data/db
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    
+    # Network
+    networks:
+      - fastapi-network
+
+  # =========================================================================
+  # FastAPI Service
+  # =========================================================================
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi-app
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Depends on MongoDB being healthy
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    
+    # Environment variables for FastAPI
+    environment:
+      - APP_NAME=fastapi-mongo-k8s
+      - ENVIRONMENT=docker-compose
+      - LOCATION=local
+      - DEBUG=true
+      - MONGODB_URL=mongodb://admin:secret123@mongodb:27017
+      - MONGODB_DB_NAME=fastapi_db
+      - MONGODB_MAX_POOL_SIZE=100
+      - MONGODB_MIN_POOL_SIZE=10
+    
+    # Port mapping
+    ports:
+      - "8000:8000"
+    
+    # Network
+    networks:
+      - fastapi-network
+
+# =========================================================================
+# Volumes
+# =========================================================================
+volumes:
+  mongodb_data:
+    driver: local
+
+# =========================================================================
+# Networks
+# =========================================================================
+networks:
+  fastapi-network:
+    driver: bridge

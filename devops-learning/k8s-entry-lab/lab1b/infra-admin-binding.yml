@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: infra-admin-binding
+subjects:
+  - kind: ServiceAccount
+    name: infra-admin
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: infrastructure-admin
+  apiGroup: rbac.authorization.k8s.io

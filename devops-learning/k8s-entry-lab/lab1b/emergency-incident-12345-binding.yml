@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: emergency-incident-12345
+  annotations:
+    incident-id: "INC12345"
+    expires: "2024-01-15T12:00:00Z"
+    approved-by: "oncall-manager"
+    reason: "Production database outage - need full access for recovery"
+subjects:
+  - kind: User
+    name: oncall-engineer@company.com
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: emergency-responder
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: emergency-responder
+  annotations:
+    description: "Break-glass access for P1 incidents. Usage is audited."
+rules:
+  # Almost full access
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+  # Note: RBAC is intentionally NOT excluded here
+  # In production, you'd want more granular control

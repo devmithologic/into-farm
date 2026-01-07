@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crasher
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crasher
+  template:
+    metadata:
+      labels:
+        app: crasher
+    spec:
+      containers:
+        - name: crasher
+          image: busybox
+          command: ["sh", "-c", "echo starting && exit 1"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi

@@ -782,3 +782,423 @@ kubectl delete serviceaccount platform-engineer -n default
 kubectl delete serviceaccount infra-admin -n default
 kubectl delete namespace monitoring
 ```
+
+---
+
+## Lab 3: Services, Networking & Troubleshooting
+
+### Setup: Create Lab Directory
+
+```bash
+mkdir -p ~/k8s-lab/lab3
+cd ~/k8s-lab/lab3
+```
+
+### Step 1: Create a Backend Service
+
+**Create the Deployment and Service YAML file:**
+
+```bash
+cat > backend-api.yml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+  namespace: staging
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: backend
+      tier: api
+  template:
+    metadata:
+      labels:
+        app: backend
+        tier: api
+    spec:
+      containers:
+        - name: api
+          image: hashicorp/http-echo
+          args:
+            - "-text=Hello from backend"
+          ports:
+            - containerPort: 5678
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api
+  namespace: staging
+spec:
+  selector:
+    app: backend
+    tier: api
+  ports:
+    - port: 80
+      targetPort: 5678
+EOF
+
+# Review the file
+cat backend-api.yml
+
+# Apply it
+kubectl apply -f backend-api.yml
+
+# Verify deployment
+kubectl get pods -n staging -l app=backend
+kubectl get svc -n staging
+```
+
+### Step 2: Verify Service Discovery
+
+```bash
+# Check endpoints (pods backing the service)
+kubectl get endpoints backend-api -n staging
+# Should show 3 pod IPs
+
+# Test from inside cluster
+kubectl run debug --rm -it --image=busybox -n staging -- sh
+
+# Inside the debug pod:
+nslookup backend-api
+wget -qO- http://backend-api
+exit
+```
+
+### Step 3: Troubleshooting Practice - Break Things!
+
+#### Scenario 1: Service has no endpoints
+
+```bash
+# Break it - Change the selector to something that doesn't match
+kubectl patch service backend-api -n staging --type='json' \
+  -p='[{"op": "replace", "path": "/spec/selector/tier", "value": "wrong-tier"}]'
+
+# Check endpoints now
+kubectl get endpoints backend-api -n staging
+# Should show ""
+
+# How to diagnose:
+kubectl describe service backend-api -n staging
+# Look at Selector and compare with pod labels
+kubectl get pods -n staging --show-labels
+
+# Fix it:
+kubectl patch service backend-api -n staging --type='json' \
+  -p='[{"op": "replace", "path": "/spec/selector/tier", "value": "api"}]'
+
+# Verify fix
+kubectl get endpoints backend-api -n staging
+# Should show 3 pod IPs again
+```
+
+#### Scenario 2: Pod can't start (image pull error)
+
+```bash
+# Break it - Set a non-existent image
+kubectl set image deployment/backend-api api=does-not-exist:latest -n staging
+
+# Check status
+kubectl get pods -n staging -l app=backend
+# Should show ImagePullBackOff
+
+# Diagnose
+kubectl describe pod -n staging -l app=backend | grep -A10 Events
+
+# Fix it
+kubectl set image deployment/backend-api api=hashicorp/http-echo -n staging
+
+# Watch recovery
+kubectl get pods -n staging -l app=backend -w
+# Press Ctrl+C when all pods are Running
+```
+
+#### Scenario 3: Pod crashlooping
+
+**Create a deployment that will crash:**
+
+```bash
+cat > crasher-deployment.yml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crasher
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crasher
+  template:
+    metadata:
+      labels:
+        app: crasher
+    spec:
+      containers:
+        - name: crasher
+          image: busybox
+          command: ["sh", "-c", "echo starting && exit 1"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+EOF
+
+# Review the file
+cat crasher-deployment.yml
+
+# Apply it
+kubectl apply -f crasher-deployment.yml
+
+# Watch it crash
+kubectl get pods -n staging -l app=crasher -w
+# Press Ctrl+C after seeing CrashLoopBackOff
+```
+
+**Diagnose the crash:**
+
+```bash
+# Check current logs
+kubectl logs -n staging -l app=crasher
+
+# Check logs from previous container (before crash)
+kubectl logs -n staging -l app=crasher --previous
+
+# Check restart count and reason
+kubectl describe pod -n staging -l app=crasher
+
+# Clean up
+kubectl delete -f crasher-deployment.yml
+```
+
+#### Scenario 4: NetworkPolicy blocking traffic
+
+**Create a NetworkPolicy that blocks all ingress:**
+
+```bash
+cat > deny-all-networkpolicy.yml << 'EOF'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-ingress
+  namespace: staging
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  # No ingress rules = deny all ingress
+EOF
+
+# Review the file
+cat deny-all-networkpolicy.yml
+
+# Apply it
+kubectl apply -f deny-all-networkpolicy.yml
+
+# Test - this should timeout/fail now
+kubectl run debug --rm -it --image=busybox -n staging -- wget -qO- --timeout=5 http://backend-api
+# Should timeout
+
+# Diagnose
+kubectl get networkpolicies -n staging
+kubectl describe networkpolicy deny-all-ingress -n staging
+
+# Fix - delete the blocking policy
+kubectl delete -f deny-all-networkpolicy.yml
+
+# Verify traffic works again
+kubectl run debug --rm -it --image=busybox -n staging -- wget -qO- http://backend-api
+# Should work now
+```
+
+**Create a NetworkPolicy that allows specific traffic:**
+
+```bash
+cat > allow-backend-networkpolicy.yml << 'EOF'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-ingress
+  namespace: staging
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from pods with label "role: frontend"
+    - from:
+        - podSelector:
+            matchLabels:
+              role: frontend
+      ports:
+        - protocol: TCP
+          port: 5678
+    # Allow traffic from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              purpose: monitoring
+      ports:
+        - protocol: TCP
+          port: 5678
+EOF
+
+# Review the file
+cat allow-backend-networkpolicy.yml
+
+# Apply it (don't apply if you want to keep testing freely)
+# kubectl apply -f allow-backend-networkpolicy.yml
+```
+
+### Step 4: Service Types Comparison
+
+**Create different service types to understand them:**
+
+```bash
+cat > service-types-demo.yml << 'EOF'
+# ClusterIP (default) - Internal only
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-clusterip
+  namespace: staging
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+    tier: api
+  ports:
+    - port: 80
+      targetPort: 5678
+---
+# NodePort - External via node IP
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-nodeport
+  namespace: staging
+spec:
+  type: NodePort
+  selector:
+    app: backend
+    tier: api
+  ports:
+    - port: 80
+      targetPort: 5678
+      nodePort: 30080
+EOF
+
+# Review the file
+cat service-types-demo.yml
+
+# Apply it
+kubectl apply -f service-types-demo.yml
+
+# Compare the services
+kubectl get svc -n staging
+
+# Test ClusterIP (internal only)
+kubectl run debug --rm -it --image=busybox -n staging -- wget -qO- http://backend-clusterip
+
+# Test NodePort (if using minikube)
+# minikube service backend-nodeport -n staging --url
+
+# Clean up demo services
+kubectl delete -f service-types-demo.yml
+```
+
+### Step 5: Ingress Configuration
+
+**Create an Ingress resource:**
+
+```bash
+cat > backend-ingress.yml << 'EOF'
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+  namespace: staging
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.local.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-api
+                port:
+                  number: 80
+EOF
+
+# Review the file
+cat backend-ingress.yml
+
+# Apply it (requires ingress controller)
+# kubectl apply -f backend-ingress.yml
+
+# For minikube, enable ingress addon first:
+# minikube addons enable ingress
+# Then apply and test:
+# kubectl apply -f backend-ingress.yml
+# echo "$(minikube ip) api.local.dev" | sudo tee -a /etc/hosts
+# curl http://api.local.dev
+```
+
+### List All Created Files
+
+```bash
+ls -la ~/k8s-lab/lab3/
+
+# You should see:
+# backend-api.yml
+# crasher-deployment.yml
+# deny-all-networkpolicy.yml
+# allow-backend-networkpolicy.yml
+# service-types-demo.yml
+# backend-ingress.yml
+```
+
+### Cleanup Lab 3
+
+```bash
+cd ~/k8s-lab/lab3
+
+# Delete all resources
+kubectl delete -f backend-api.yml
+kubectl delete -f crasher-deployment.yml --ignore-not-found
+kubectl delete -f deny-all-networkpolicy.yml --ignore-not-found
+kubectl delete -f service-types-demo.yml --ignore-not-found
+kubectl delete -f backend-ingress.yml --ignore-not-found
+
+# Or delete everything in staging namespace created by this lab
+kubectl delete deployment backend-api crasher -n staging --ignore-not-found
+kubectl delete svc backend-api backend-clusterip backend-nodeport -n staging --ignore-not-found
+kubectl delete networkpolicy deny-all-ingress allow-backend-ingress -n staging --ignore-not-found
+kubectl delete ingress backend-ingress -n staging --ignore-not-found
+```
+
+### Troubleshooting Quick Reference
+
+| Symptom | Command to Diagnose | Common Fix |
+|---------|---------------------|------------|
+| Service no endpoints | `kubectl get endpoints <svc>` | Fix selector labels |
+| ImagePullBackOff | `kubectl describe pod <pod>` | Fix image name or add pull secret |
+| CrashLoopBackOff | `kubectl logs <pod> --previous` | Fix application code/config |
+| Pending pod | `kubectl describe pod <pod>` | Check resources or node selectors |
+| Connection refused | `kubectl get endpoints` + `kubectl get networkpolicies` | Check service port or network policy |
+
+---

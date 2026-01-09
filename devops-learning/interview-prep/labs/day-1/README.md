@@ -10,6 +10,7 @@ This guide documents key concepts and troubleshooting patterns learned through h
 2. [YAML Structure Fundamentals](#yaml-structure-fundamentals)
 3. [The describe Command and Kubernetes Resources](#the-describe-command-and-kubernetes-resources)
 4. [Labels vs Namespaces: Understanding the Difference](#labels-vs-namespaces-understanding-the-difference)
+5. [Linux Troubleshooting Commands](#linux-troubleshooting-commands)
 
 ---
 
@@ -481,13 +482,272 @@ For any Kubernetes issue, follow this structure:
 
 ---
 
+## Linux Troubleshooting Commands
+
+Whether you're debugging a Kubernetes node, a VM, or a bare-metal server, these commands form the foundation of system troubleshooting. Understanding not just *what* each command does, but *when* and *why* to use it, is critical for SRE/DevOps interviews.
+
+### System Overview: First Response Commands
+
+When you first SSH into a problematic system, these commands give you a quick health snapshot:
+
+```bash
+uptime
+```
+**What it shows:** System uptime and load averages (1, 5, 15 minutes)
+
+**What to look for:**
+- Load average > number of CPU cores = system is overloaded
+- Recent reboot (low uptime) = something crashed or was restarted
+- Load trending up across 1→5→15 = problem is getting worse
+
+**Real scenario:** "Users report slow API responses" → `uptime` shows load average of 24.5 on an 8-core machine = CPU saturation, need to find the culprit process.
+
+---
+
+```bash
+free -h
+```
+**What it shows:** Memory usage in human-readable format
+
+**What to look for:**
+- `available` column (not `free`) = actual memory available for applications
+- High `buff/cache` is normal - Linux uses spare RAM for caching
+- Swap usage > 0 = system ran out of RAM at some point
+
+**Real scenario:** "Application keeps getting OOMKilled" → `free -h` shows 200MB available on a 16GB system with 14GB in use = memory leak or undersized instance.
+
+---
+
+```bash
+df -h
+```
+**What it shows:** Disk space usage per filesystem
+
+**What to look for:**
+- Any filesystem at 100% = immediate problem
+- `/` or `/var` filling up = logs, containers, or temp files accumulating
+- Inodes exhaustion (use `df -i`) = many small files consuming inode table
+
+**Real scenario:** "Containers won't start" → `df -h` shows `/var/lib/docker` at 100% = need to clean up old images/containers.
+
+---
+
+### CPU Troubleshooting
+
+```bash
+ps aux --sort=-%cpu | head -10
+```
+**What it shows:** Top 10 processes by CPU usage
+
+**Output columns that matter:**
+- `%CPU` - CPU percentage
+- `%MEM` - Memory percentage  
+- `COMMAND` - What process is running
+- `TIME` - Cumulative CPU time
+
+**Real scenario:** "Server is slow" → This shows a Java process at 400% CPU = runaway thread or infinite loop in the application.
+
+---
+
+```bash
+top -bn1 | head -20
+```
+**What it shows:** Real-time system summary + top processes (batch mode, single iteration)
+
+**Key metrics in header:**
+- `%Cpu(s): us` = user space (your apps)
+- `%Cpu(s): sy` = system/kernel
+- `%Cpu(s): wa` = I/O wait (high = disk bottleneck)
+- `%Cpu(s): id` = idle
+
+**Real scenario:** "Everything is slow but CPU shows low usage" → `top` shows 60% `wa` (I/O wait) = disk is the bottleneck, not CPU.
+
+---
+
+### Memory Troubleshooting
+
+```bash
+ps aux --sort=-%mem | head -10
+```
+**What it shows:** Top 10 processes by memory usage
+
+**Real scenario:** "System ran out of memory overnight" → Shows a Python process using 45% of RAM that was using 5% yesterday = memory leak.
+
+---
+
+```bash
+vmstat 1 5
+```
+**What it shows:** Virtual memory statistics, sampled every 1 second, 5 times
+
+**Key columns:**
+- `r` - Processes waiting for CPU (high = CPU bottleneck)
+- `b` - Processes in uninterruptible sleep (high = I/O bottleneck)
+- `si/so` - Swap in/out (any activity = memory pressure)
+- `wa` - I/O wait percentage
+
+**Real scenario:** "Intermittent slowness" → `vmstat 1 30` over 30 seconds shows `si/so` spiking periodically = system swapping, needs more RAM or has a memory leak.
+
+---
+
+### Disk Troubleshooting
+
+```bash
+du -sh /* 2>/dev/null | sort -hr | head -10
+```
+**What it shows:** Size of top-level directories, sorted by size
+
+**Drill-down technique:**
+```bash
+du -sh /* 2>/dev/null | sort -hr | head -5      # Find biggest top-level
+du -sh /var/* 2>/dev/null | sort -hr | head -5  # Drill into /var
+du -sh /var/log/* 2>/dev/null | sort -hr | head -5  # Drill into /var/log
+```
+
+**Real scenario:** "Disk at 95%" → Drill down reveals `/var/log/application.log` is 80GB = log rotation not configured or app logging excessively.
+
+---
+
+```bash
+iostat -xz 1 3
+```
+**What it shows:** Extended I/O statistics per device, sampled 3 times
+
+**Key columns:**
+- `%util` - How busy the device is (100% = saturated)
+- `await` - Average time for I/O requests (high = slow disk)
+- `r/s, w/s` - Reads/writes per second
+
+**Real scenario:** "Database queries are slow" → `iostat` shows `%util` at 99% on the data disk = disk I/O bottleneck, consider faster storage or caching layer.
+
+---
+
+### Log Analysis
+
+```bash
+journalctl --since "1 hour ago" | tail -30
+```
+**What it shows:** System logs from the last hour
+
+**Useful variations:**
+```bash
+journalctl -u nginx --since "1 hour ago"        # Specific service
+journalctl -f                                     # Follow logs (like tail -f)
+journalctl --since "2024-01-15 10:00" --until "2024-01-15 11:00"  # Time range
+```
+
+---
+
+```bash
+journalctl -p err --since "24 hours ago"
+```
+**What it shows:** Only ERROR level messages from the last 24 hours
+
+**Priority levels:** `emerg`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug`
+
+**Real scenario:** "Service crashed sometime last night" → Filter by `err` or `crit` to find the exact error message and timestamp without wading through thousands of info logs.
+
+---
+
+### Service Management
+
+```bash
+systemctl --failed
+```
+**What it shows:** All services that failed to start or crashed
+
+**Real scenario:** "Something's wrong after reboot" → Shows 3 failed services including the database = explains why the app can't connect.
+
+---
+
+```bash
+systemctl status <service-name>
+```
+**What it shows:** Service state, recent logs, PID, memory usage
+
+**What to look for:**
+- `Active: active (running)` vs `failed` vs `inactive`
+- `Main PID` - Process ID (useful for further debugging)
+- Recent log lines at the bottom
+
+**Useful follow-ups:**
+```bash
+systemctl restart nginx          # Restart service
+systemctl enable nginx           # Start on boot
+journalctl -u nginx -f           # Follow service logs
+```
+
+---
+
+### Network Troubleshooting (Bonus)
+
+```bash
+ss -tulnp
+```
+**What it shows:** Listening TCP/UDP ports and which process owns them
+
+**Real scenario:** "App says port 8080 is already in use" → `ss -tulnp | grep 8080` shows another process already bound to that port.
+
+---
+
+```bash
+curl -I http://localhost:8080/health
+```
+**What it shows:** HTTP headers only (quick health check)
+
+**Real scenario:** Verify if a service is responding before checking deeper.
+
+---
+
+```bash
+netstat -an | grep ESTABLISHED | wc -l
+```
+**What it shows:** Count of established connections
+
+**Real scenario:** "Server is slow and unresponsive" → Shows 50,000 established connections = connection exhaustion or DDoS.
+
+---
+
+### Troubleshooting Decision Tree
+
+When you SSH into a problematic server, follow this order:
+
+```
+1. uptime          → Is the system overloaded? Recently rebooted?
+         ↓
+2. free -h         → Is memory exhausted?
+         ↓
+3. df -h           → Is disk full?
+         ↓
+4. top/ps          → What process is consuming resources?
+         ↓
+5. journalctl      → What do the logs say?
+         ↓
+6. systemctl       → Are all services running?
+```
+
+### Common Troubleshooting Scenarios
+
+| Symptom | First Commands | What You're Looking For |
+|---------|----------------|------------------------|
+| **System slow** | `uptime`, `top` | High load average, CPU-hungry process |
+| **Application OOMKilled** | `free -h`, `ps aux --sort=-%mem` | Memory exhaustion, memory-hungry process |
+| **Disk full alerts** | `df -h`, `du -sh /*` | Which filesystem, which directory |
+| **Service not responding** | `systemctl status`, `journalctl -u` | Service state, error messages |
+| **Can't connect to port** | `ss -tulnp`, `systemctl status` | Is anything listening? Is service running? |
+| **Slow I/O** | `iostat -xz 1 5`, `top` (check wa%) | Disk utilization, I/O wait |
+| **After reboot issues** | `systemctl --failed`, `journalctl -b` | Failed services, boot logs |
+
+---
+
 ## Summary
 
-Understanding Kubernetes troubleshooting requires knowing:
+Understanding system and Kubernetes troubleshooting requires knowing:
 
 1. **What error states mean** - not just their names, but the underlying causes
 2. **How YAML structures work** - the relationship between spec fields and runtime behavior
 3. **What resources exist** - and how to inspect them with `describe`
 4. **How labels enable dynamic relationships** - the selection mechanism that connects Services to Pods
+5. **Linux fundamentals** - CPU, memory, disk, logs, and services diagnostics
 
 This foundation enables systematic debugging rather than guesswork.

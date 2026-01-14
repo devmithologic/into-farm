@@ -108,3 +108,4 @@ Thumbs.db
 .ruff_cache/
 
 devops-learning/interview-prep/5-day-study-plan.md
+.terraform/
